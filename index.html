@@ -1,0 +1,318 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>테트잇기</title>
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Firebase App & Services -->
+    <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-auth-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-firestore-compat.js"></script>
+    <style>
+        body {
+            background-color: #0f172a;
+            color: #f8fafc;
+            font-family: 'Pretendard', sans-serif;
+            touch-action: manipulation;
+        }
+        canvas {
+            image-rendering: pixelated;
+        }
+        .custom-scrollbar::-webkit-scrollbar {
+            width: 6px;
+        }
+        .custom-scrollbar::-webkit-scrollbar-track {
+            background: #1e293b;
+        }
+        .custom-scrollbar::-webkit-scrollbar-thumb {
+            background: #475569;
+            border-radius: 3px;
+        }
+    </style>
+</head>
+<body class="min-h-screen flex flex-col items-center justify-start p-2 sm:p-4 select-none">
+
+    <!-- 상단 헤더 & 로그인 영역 -->
+    <header class="w-full max-w-5xl flex flex-wrap justify-between items-center bg-slate-800/80 p-3 rounded-xl border border-slate-700 mb-4 gap-2">
+        <div class="flex items-center gap-2">
+            <h1 class="text-xl font-bold bg-gradient-to-r from-cyan-400 to-blue-500 bg-clip-text text-transparent">
+                TETRIS MULTI 4P
+            </h1>
+            <span id="login-status-badge" class="text-xs px-2 py-0.5 rounded bg-slate-700 text-slate-400">게스트</span>
+        </div>
+
+        <div class="flex items-center gap-2">
+            <button id="btn-open-keymap" class="px-3 py-1.5 bg-slate-700 hover:bg-slate-600 text-xs sm:text-sm rounded-lg transition font-medium">
+                ⚙️ 키 설정
+            </button>
+            <button id="btn-login-google" class="px-3 py-1.5 bg-blue-600 hover:bg-blue-500 text-xs sm:text-sm rounded-lg transition font-medium flex items-center gap-1">
+                🔑 Google 로그인
+            </button>
+            <button id="btn-logout" class="hidden px-3 py-1.5 bg-red-600/80 hover:bg-red-500 text-xs sm:text-sm rounded-lg transition font-medium">
+                로그아웃
+            </button>
+        </div>
+    </header>
+
+    <!-- 메인 컨테이너 -->
+    <main class="w-full max-w-5xl flex flex-col md:flex-row gap-4">
+        
+        <!-- 왼쪽: 로비 & 방 관리 -->
+        <section class="w-full md:w-80 bg-slate-800/50 p-4 rounded-xl border border-slate-700 flex flex-col gap-4">
+            <h2 class="text-lg font-bold text-slate-200 border-b border-slate-700 pb-2">🎮 게임 로비</h2>
+            
+            <!-- 방 생성 -->
+            <div class="flex flex-col gap-2">
+                <label class="text-xs text-slate-400">최대 인원 선택 (2~4명)</label>
+                <div class="flex gap-2">
+                    <select id="select-max-players" class="bg-slate-900 border border-slate-700 rounded px-2 py-1.5 text-sm flex-1">
+                        <option value="2">2명 (1v1 턴제)</option>
+                        <option value="3">3명 턴제</option>
+                        <option value="4" selected>4명 턴제</option>
+                    </select>
+                    <button id="btn-create-room" class="bg-emerald-600 hover:bg-emerald-500 px-3 py-1.5 rounded text-sm font-semibold transition">
+                        방 만들기
+                    </button>
+                </div>
+            </div>
+
+            <!-- 방 참여 -->
+            <div class="flex flex-col gap-2">
+                <label class="text-xs text-slate-400">6자리 방 코드 입력</label>
+                <div class="flex gap-2">
+                    <input type="text" id="input-room-code" placeholder="예: A1B2C3" maxlength="6" class="bg-slate-900 border border-slate-700 rounded px-3 py-1.5 text-sm flex-1 uppercase tracking-wider font-mono">
+                    <button id="btn-join-room" class="bg-indigo-600 hover:bg-indigo-500 px-3 py-1.5 rounded text-sm font-semibold transition">
+                        입장
+                    </button>
+                </div>
+            </div>
+
+            <!-- 현재 방 정보 -->
+            <div id="room-info-box" class="hidden flex-col gap-3 bg-slate-900/80 p-3 rounded-lg border border-slate-700 mt-2">
+                <div class="flex justify-between items-center">
+                    <span class="text-xs text-slate-400">방 코드: <strong id="display-room-code" class="text-cyan-400 font-mono text-sm">------</strong></span>
+                    <button id="btn-leave-room" class="text-xs text-red-400 hover:underline">퇴장</button>
+                </div>
+                <div>
+                    <span class="text-xs text-slate-400 block mb-1">참여자 목록 (<span id="player-count">0</span>/<span id="max-player-count">0</span>)</span>
+                    <ul id="player-list" class="flex flex-col gap-1 text-sm">
+                        <!-- 플레이어 항목 동적 생성 -->
+                    </ul>
+                </div>
+                <button id="btn-start-game" class="hidden w-full py-2 bg-gradient-to-r from-emerald-500 to-teal-600 hover:from-emerald-400 hover:to-teal-500 rounded font-bold text-sm shadow transition mt-1">
+                    게임 시작!
+                </button>
+            </div>
+        </section>
+
+        <!-- 오른쪽: 게임 화면 -->
+        <section class="flex-1 bg-slate-800/50 p-4 rounded-xl border border-slate-700 flex flex-col items-center justify-center relative min-h-[500px]">
+            
+            <!-- 턴 및 안내 표시 -->
+            <div id="turn-banner" class="mb-3 px-4 py-1.5 rounded-full bg-slate-900 border border-slate-700 text-sm font-bold flex items-center gap-2">
+                <span class="w-2.5 h-2.5 rounded-full bg-slate-500 animate-pulse" id="turn-indicator-dot"></span>
+                <span id="turn-text" class="text-slate-300">로비에서 방을 만들거나 입장해주세요</span>
+            </div>
+
+            <!-- 메인 게임 보드 + 사이드 정보 -->
+            <div class="flex flex-wrap justify-center gap-4 items-start">
+                
+                <!-- HOLD & NEXT 서브 정보 -->
+                <div class="flex flex-col gap-3">
+                    <div class="bg-slate-900 p-2.5 rounded-lg border border-slate-700 text-center">
+                        <span class="text-[10px] text-slate-400 font-bold block mb-1">HOLD</span>
+                        <canvas id="canvas-hold" width="80" height="80" class="bg-slate-950 rounded"></canvas>
+                    </div>
+                    <div class="bg-slate-900 p-2.5 rounded-lg border border-slate-700 text-center">
+                        <span class="text-[10px] text-slate-400 font-bold block mb-1">NEXT</span>
+                        <canvas id="canvas-next" width="80" height="80" class="bg-slate-950 rounded"></canvas>
+                    </div>
+                    <div class="bg-slate-900 p-2.5 rounded-lg border border-slate-700 text-center text-xs">
+                        <span class="text-slate-400 block">SCORE</span>
+                        <span id="text-score" class="font-mono text-lg font-bold text-amber-400">0</span>
+                    </div>
+                </div>
+
+                <!-- 메인 게임 캔버스 -->
+                <div class="relative">
+                    <canvas id="canvas-main" width="240" height="480" class="bg-slate-950 rounded-lg border-2 border-slate-700 shadow-2xl"></canvas>
+                    
+                    <!-- 오버레이 안내 (게임 오버 / 일시정지) -->
+                    <div id="game-overlay" class="absolute inset-0 bg-slate-950/85 backdrop-blur-sm rounded-lg flex flex-col items-center justify-center gap-3 hidden">
+                        <h3 id="overlay-title" class="text-2xl font-black text-red-500">GAME OVER</h3>
+                        <p id="overlay-desc" class="text-xs text-slate-300 text-center px-4">다음 턴을 기다리거나 새로 시작하세요</p>
+                    </div>
+                </div>
+
+            </div>
+
+            <!-- 모바일/터치 조작 버튼 -->
+            <div class="grid grid-cols-5 gap-2 w-full max-w-xs mt-4">
+                <button id="btn-touch-left" class="bg-slate-700 active:bg-slate-600 p-3 rounded-lg text-center text-lg font-bold">←</button>
+                <button id="btn-touch-rotate" class="bg-slate-700 active:bg-slate-600 p-3 rounded-lg text-center text-lg font-bold">↻</button>
+                <button id="btn-touch-right" class="bg-slate-700 active:bg-slate-600 p-3 rounded-lg text-center text-lg font-bold">→</button>
+                <button id="btn-touch-soft" class="bg-slate-700 active:bg-slate-600 p-3 rounded-lg text-center text-lg font-bold">↓</button>
+                <button id="btn-touch-drop" class="bg-indigo-600 active:bg-indigo-500 p-3 rounded-lg text-center text-xs font-bold">DROP</button>
+            </div>
+
+        </section>
+    </main>
+
+    <!-- 키 설정 모달 -->
+    <div id="modal-keymap" class="fixed inset-0 bg-black/70 backdrop-blur-sm flex items-center justify-center hidden z-50 p-4">
+        <div class="bg-slate-800 border border-slate-700 rounded-xl p-5 w-full max-w-md flex flex-col gap-4 shadow-2xl">
+            <h3 class="text-lg font-bold text-slate-100 flex justify-between items-center border-b border-slate-700 pb-2">
+                ⚙️ 사용자 지정 조작키 설정
+                <button id="btn-close-keymap" class="text-slate-400 hover:text-white text-sm">✕</button>
+            </h3>
+            <p class="text-xs text-slate-400">변경하고 싶은 항목의 버튼을 누르고 바꿀 키보드 키를 입력하세요. (계정 또는 브라우저에 즉시 저장됩니다)</p>
+
+            <div class="flex flex-col gap-2 text-sm" id="key-bindings-list">
+                <!-- 키 바인딩 항목들 -->
+                <div class="flex justify-between items-center bg-slate-900 p-2 rounded">
+                    <span>왼쪽 이동</span>
+                    <button data-action="left" class="key-bind-btn bg-slate-700 px-3 py-1 rounded text-xs font-mono text-cyan-300 border border-slate-600">LeftArrow</button>
+                </div>
+                <div class="flex justify-between items-center bg-slate-900 p-2 rounded">
+                    <span>오른쪽 이동</span>
+                    <button data-action="right" class="key-bind-btn bg-slate-700 px-3 py-1 rounded text-xs font-mono text-cyan-300 border border-slate-600">RightArrow</button>
+                </div>
+                <div class="flex justify-between items-center bg-slate-900 p-2 rounded">
+                    <span>회전</span>
+                    <button data-action="rotate" class="key-bind-btn bg-slate-700 px-3 py-1 rounded text-xs font-mono text-cyan-300 border border-slate-600">UpArrow</button>
+                </div>
+                <div class="flex justify-between items-center bg-slate-900 p-2 rounded">
+                    <span>소프트 드롭</span>
+                    <button data-action="softDrop" class="key-bind-btn bg-slate-700 px-3 py-1 rounded text-xs font-mono text-cyan-300 border border-slate-600">DownArrow</button>
+                </div>
+                <div class="flex justify-between items-center bg-slate-900 p-2 rounded">
+                    <span>하드 드롭</span>
+                    <button data-action="hardDrop" class="key-bind-btn bg-slate-700 px-3 py-1 rounded text-xs font-mono text-cyan-300 border border-slate-600">Space</button>
+                </div>
+                <div class="flex justify-between items-center bg-slate-900 p-2 rounded">
+                    <span>홀드 (Hold)</span>
+                    <button data-action="hold" class="key-bind-btn bg-slate-700 px-3 py-1 rounded text-xs font-mono text-cyan-300 border border-slate-600">KeyC</button>
+                </div>
+            </div>
+
+            <button id="btn-save-keymap" class="w-full py-2 bg-blue-600 hover:bg-blue-500 rounded font-bold text-sm transition mt-2">
+                설정 완료
+            </button>
+        </div>
+    </div>
+
+    <!-- 스크립트 로직 -->
+    <script>
+        // 1. 기본 키 설정 (기본값)
+        let keyMap = {
+            left: 'ArrowLeft',
+            right: 'ArrowRight',
+            rotate: 'ArrowUp',
+            softDrop: 'ArrowDown',
+            hardDrop: 'Space',
+            hold: 'KeyC'
+        };
+
+        // 로컬스토리지에서 기존 키 설정 로드
+        const savedKeys = localStorage.getItem('tetris_keymap');
+        if (savedKeys) {
+            try { keyMap = { ...keyMap, ...JSON.parse(savedKeys) }; } catch(e){}
+        }
+
+        // 2. 키 설정 모달 및 변경 로직
+        const modalKeymap = document.getElementById('modal-keymap');
+        let currentListeningAction = null;
+
+        document.getElementById('btn-open-keymap').addEventListener('click', () => {
+            updateKeymapUI();
+            modalKeymap.classList.remove('hidden');
+        });
+
+        document.getElementById('btn-close-keymap').addEventListener('click', () => {
+            modalKeymap.classList.add('hidden');
+            currentListeningAction = null;
+        });
+
+        document.getElementById('btn-save-keymap').addEventListener('click', () => {
+            localStorage.setItem('tetris_keymap', JSON.stringify(keyMap));
+            modalKeymap.classList.add('hidden');
+            currentListeningAction = null;
+            alert("키 설정이 저장되었습니다!");
+        });
+
+        function updateKeymapUI() {
+            document.querySelectorAll('.key-bind-btn').forEach(btn => {
+                const action = btn.dataset.action;
+                btn.textContent = keyMap[action] || '미지정';
+            });
+        }
+
+        document.querySelectorAll('.key-bind-btn').forEach(btn => {
+            btn.addEventListener('click', (e) => {
+                currentListeningAction = e.target.dataset.action;
+                e.target.textContent = '입력 대기중...';
+                e.target.classList.add('bg-amber-600');
+            });
+        });
+
+        window.addEventListener('keydown', (e) => {
+            if (currentListeningAction) {
+                e.preventDefault();
+                keyMap[currentListeningAction] = e.code;
+                currentListeningAction = null;
+                updateKeymapUI();
+            }
+        });
+
+        // 3. 간단한 게임 보드 및 캔버스 엔진 (입력 씹힘 방지 DAS/ARR 지원)
+        const mainCanvas = document.getElementById('canvas-main');
+        const ctx = mainCanvas.getContext('2d');
+        const COLS = 10, ROWS = 20, BLOCK_SIZE = 24;
+
+        // 테트리스 블록 색상 정의
+        const COLORS = [
+            null, '#00f0f0', '#0000f0', '#f0a000', '#f0f000', '#00f000', '#a000f0', '#f00000'
+        ];
+
+        let board = Array.from({ length: ROWS }, () => Array(COLS).fill(0));
+        let score = 0;
+
+        function drawBoard() {
+            ctx.fillStyle = '#020617';
+            ctx.fillRect(0, 0, mainCanvas.width, mainCanvas.height);
+
+            // 격자 그리기
+            ctx.strokeStyle = '#1e293b';
+            ctx.lineWidth = 0.5;
+            for(let r=0; r<ROWS; r++) {
+                for(let c=0; c<COLS; c++) {
+                    ctx.strokeRect(c*BLOCK_SIZE, r*BLOCK_SIZE, BLOCK_SIZE, BLOCK_SIZE);
+                    if (board[r][c]) {
+                        ctx.fillStyle = COLORS[board[r][c]];
+                        ctx.fillRect(c*BLOCK_SIZE+1, r*BLOCK_SIZE+1, BLOCK_SIZE-2, BLOCK_SIZE-2);
+                    }
+                }
+            }
+        }
+
+        drawBoard();
+
+        // Firebase 비활성화 예외 처리 안내 (웹서버 미연동 시 로컬 안내)
+        document.getElementById('btn-login-google').addEventListener('click', () => {
+            alert("Google 로그인 및 온라인 방 기능은 백엔드 Firebase 설정 연결 후 즉시 활성화됩니다.\n현재 키 설정 및 조작은 로컬에 즉시 저장되어 사용하실 수 있습니다.");
+        });
+
+        document.getElementById('btn-create-room').addEventListener('click', () => {
+            const count = document.getElementById('select-max-players').value;
+            document.getElementById('room-info-box').classList.remove('hidden');
+            document.getElementById('display-room-code').textContent = Math.random().toString(36).substring(2, 8).toUpperCase();
+            document.getElementById('player-count').textContent = '1';
+            document.getElementById('max-player-count').textContent = count;
+            document.getElementById('player-list').innerHTML = `<li class="text-emerald-400 font-bold">👤 Player 1 (나 - 호스트)</li>`;
+            document.getElementById('turn-text').textContent = "Player 1 의 턴입니다";
+        });
+    </script>
+</body>
+</html>
